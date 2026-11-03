@@ -408,7 +408,7 @@ class AgendaCard extends HTMLElement {
     for (const b of this._dialogEl.querySelectorAll(".agenda-day-event")) {
       b.classList.toggle("selected", Number(b.getAttribute("data-index")) === index);
     }
-    const calendar = this._hass?.states?.[e.entityId]?.attributes?.friendly_name || e.entityId;
+    const calendar = this._calendarName(e.entityId);
     const row = (icon, html) =>
       `<div class="agenda-d-row"><ha-icon icon="${icon}"></ha-icon><div class="agenda-d-text">${html}</div></div>`;
     const timetable = e.description && parseTimetable(e.description);
@@ -430,6 +430,16 @@ class AgendaCard extends HTMLElement {
       ${e.description ? row("mdi:text", text) : ""}`;
     info.scrollTop = 0;
     info.querySelector("h2").focus();
+  }
+
+  // The name the calendar has in HA. Without one, its entity ID read as words:
+  // calendar.schule_lia becomes "Schule lia".
+  _calendarName(entityId) {
+    const name =
+      this._hass?.states?.[entityId]?.attributes?.friendly_name || this._hass?.entities?.[entityId]?.name;
+    if (name) return name;
+    const words = entityId.replace(/^calendar\./, "").replace(/_/g, " ");
+    return words.charAt(0).toUpperCase() + words.slice(1);
   }
 
   // One color per calendar, in the order of `entities`.

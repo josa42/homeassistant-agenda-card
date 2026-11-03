@@ -83,6 +83,14 @@
     ],
   };
 
+  const NAMES = {
+    "calendar.family": "Familie",
+    "calendar.schule": "Schule",
+    "calendar.geburtstage": "Geburtstage",
+    "calendar.ferien": "Schulferien",
+    "calendar.reise": "Reisen",
+  };
+
   function overlaps(e, start, end) {
     const s = new Date(e.start.dateTime || `${e.start.date}T00:00:00`);
     const t = new Date(e.end.dateTime || `${e.end.date}T00:00:00`);
@@ -92,7 +100,9 @@
   function hass() {
     const empty = document.getElementById("empty").checked;
     return {
-      states: Object.fromEntries(Object.keys(EVENTS).map((id) => [id, { state: "off", attributes: {} }])),
+      states: Object.fromEntries(
+        Object.entries(NAMES).map(([id, friendly_name]) => [id, { state: "off", attributes: { friendly_name } }])
+      ),
       language: "de",
       locale: { language: "de", time_format: document.getElementById("clock").value },
       async callApi(method, path) {
