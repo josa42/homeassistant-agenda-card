@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agenda Sandbox</title>
+<style>
+  :root { --primary-text-color: #212121; --card-background-color: #fff; }
+  body { font-family: Roboto, -apple-system, Helvetica, sans-serif; font-size: 14px; line-height: 1.6;
+         background: #fafafa; margin: 0; padding: 16px; color: var(--primary-text-color); }
+  body.dark { --primary-text-color: #e1e1e1; --card-background-color: #1c1c1c; background: #111111; }
+  ha-card { display: block; background: var(--card-background-color); border-radius: 12px;
+            border: 1px solid rgba(127, 127, 127, .25); }
+  .controls { max-width: 760px; margin: 0 auto 16px; display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; }
+  label { display: flex; gap: 6px; align-items: center; }
+  select, input { font: inherit; }
+  h2 { font-size: 16px; font-weight: 400; margin: 16px 0 8px; }
+  #mount { max-width: 760px; margin: 0 auto; }
+</style>
+</head>
+<body class="dark">
+<div class="controls">
+  <label>Breite <input id="width" type="range" min="280" max="760" step="10" value="374"><span id="widthv"></span></label>
+  <label><input id="dark" type="checkbox" checked> Dunkel</label>
+  <label><input id="empty" type="checkbox"> Leerer Tag</label>
+  <label>Uhr <select id="clock"><option value="24">24 h</option><option value="12">12 h</option></select></label>
+</div>
+<div id="mount">
+  <h2>Heute</h2>
+  <div id="today"></div>
+  <h2>Morgen</h2>
+  <div id="tomorrow"></div>
+</div>
+
+<script>
+  // The card wraps itself in <ha-card>; outside HA that is just a block.
+  customElements.define("ha-card", class extends HTMLElement {});
+</script>
+<script src="../agenda-card.js"></script>
+<script>
+  const pad = (n) => String(n).padStart(2, "0");
+  const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  // A time on the day `offset` days from today, as HA sends a dateTime.
+  const at = (offset, h, m = 0) => {
+    const d = new Date();
+    d.setDate(d.getDate() + offset);
+    d.setHours(h, m, 0, 0);
+    return { dateTime: d.toISOString() };
+  };
+  const date = (offset) => {
+    const d = new Date();
+    d.setDate(d.getDate() + offset);
+    return { date: ymd(d) };
+  };
+  const now = new Date().getHours();
+
+  // Each event is on the first day of its calendar; the duplicate sits in two.
+  const EVENTS = {
+    "calendar.family": [
+      { summary: "🏃 Laufen", start: at(0, Math.max(now - 2, 0)), end: at(0, Math.max(now - 1, 0)) },
+      { summary: "🏠 Homeoffice", start: at(0, 9), end: at(0, 17, 30) },
+      { summary: "Physio", description: "Praxis am Markt", start: at(0, 12), end: at(0, 13) },
+      { summary: "🧗 Klettern", start: at(0, 20), end: at(0, 22) },
+      { summary: "🏃 Laufen", start: at(1, 7), end: at(1, 8) },
+      { summary: "🎸 Gitarre üben", start: at(1, 15), end: at(1, 15, 30) },
+      { summary: "Zahnarzt", start: at(1, 16, 45), end: at(1, 17, 45) },
+    ],
+    "calendar.schule": [
+      { summary: "Schule", description: "07:50 Deutsch 09:50 Mathe 10:40 Kunst 11:35 Sport",
+        start: at(0, 7, 50), end: at(0, 12, 20) },
+      { summary: "Schule", description: "07:50 Englisch 09:50 Mathe 10:40 Musik",
+        start: at(1, 7, 50), end: at(1, 11, 25) },
+      { summary: "Zahnarzt", start: at(1, 16, 45), end: at(1, 17, 45) },
+    ],
+    "calendar.geburtstage": [
+      { summary: "Geburtstag Oma", start: date(1), end: date(2) },
+    ],
+    "calendar.ferien": [
+      { summary: "Herbstferien", start: date(-2), end: date(4) },
+    ],
+    "calendar.reise": [
+      { summary: "Messe", start: at(-1, 9), end: at(1, 14) },
+    ],
+  };
+
+  function overlaps(e, start, end) {
+    const s = new Date(e.start.dateTime || `${e.start.date}T00:00:00`);
+    const t = new Date(e.end.dateTime || `${e.end.date}T00:00:00`);
+    return s < end && t > start;
+  }
+
+  function hass() {
+    const empty = document.getElementById("empty").checked;
+    return {
+      states: Object.fromEntries(Object.keys(EVENTS).map((id) => [id, { state: "off", attributes: {} }])),
+      language: "de",
+      locale: { language: "de", time_format: document.getElementById("clock").value },
+      async callApi(method, path) {
+        const url = new URL(path, "http://x/");
+        const id = url.pathname.split("/").pop();
+        const start = new Date(url.searchParams.get("start"));
+        const end = new Date(url.searchParams.get("end"));
+        if (empty) return [];
+        return (EVENTS[id] || []).filter((e) => overlaps(e, start, end));
+      },
+    };
+  }
+
+  const entities = Object.keys(EVENTS);
+  let cards = [];
+  function mount() {
+    cards = [
+      ["today", { entities }],
+      ["tomorrow", { entities, days_ahead: 1, hide_duplicates: true }],
+    ].map(([id, config]) => {
+      const card = document.createElement("agenda-card");
+      card.setConfig({ type: "custom:agenda-card", ...config });
+      card.hass = hass();
+      document.getElementById(id).replaceChildren(card);
+      return card;
+    });
+  }
+
+  const width = document.getElementById("width");
+  function applyWidth() {
+    document.getElementById("mount").style.maxWidth = `${width.value}px`;
+    document.getElementById("widthv").textContent = `${width.value} px`;
+  }
+  width.addEventListener("input", applyWidth);
+  document.getElementById("dark").addEventListener("change", (ev) => {
+    document.body.classList.toggle("dark", ev.target.checked);
+  });
+  document.getElementById("empty").addEventListener("change", mount);
+  document.getElementById("clock").addEventListener("change", mount);
+  applyWidth();
+  mount();
+</script>
+</body>
+</html>

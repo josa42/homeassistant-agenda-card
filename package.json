@@ -1,0 +1,9 @@
+{
+  "name": "homeassistant-agenda-card",
+  "private": true,
+  "description": "Tooling for the sandbox. The card itself ships unbundled and needs no build.",
+  "scripts": {
+    "check": "node --check agenda-card.js",
+    "sandbox": "node scripts/sandbox.mjs"
+  }
+}
