@@ -15,6 +15,8 @@ const REFRESH_MS = 60 * 1000;
 const TEXT = {
   empty: "Keine Einträge",
   until: "Bis",
+  allDay: "Ganztägig",
+  close: "Schließen",
 };
 
 function startOfDay(date) {
@@ -45,6 +47,7 @@ function parseEvent(raw, entityId) {
     entityId,
     title: raw.summary || "",
     description: raw.description || "",
+    location: raw.location || "",
     start,
     end,
     allDay,
@@ -192,17 +195,30 @@ class AgendaCard extends HTMLElement {
     return `${this._time(e.start)} - ${this._time(e.end)}`;
   }
 
+  // The whole event, from its first day to its last, for the details.
+  _when(e) {
+    const date = (d) =>
+      d.toLocaleDateString(this._locale(), { weekday: "long", day: "numeric", month: "long" });
+    if (e.allDay) {
+      return sameDay(e.start, e.end) ? `${date(e.start)} · ${TEXT.allDay}` : `${date(e.start)} – ${date(e.end)}`;
+    }
+    if (sameDay(e.start, e.end)) return `${date(e.start)} · ${this._time(e.start)} – ${this._time(e.end)}`;
+    return `${date(e.start)}, ${this._time(e.start)} – ${date(e.end)}, ${this._time(e.end)}`;
+  }
+
   _render() {
     if (!this._config || !this._events) return;
+    if (!this._built) this._build();
     const now = new Date();
     const day = this._eventsDay;
     const events = sortEvents(this._events, day, now);
+    this._shown = events;
 
     const rows = events
       .map(
         (e, i) => `
           <div class="agenda-event${e.end < now ? " finished" : ""}${i === events.length - 1 ? " last" : ""}"
-               data-entity="${escapeHtml(e.entityId)}">
+               data-index="${i}">
             <div class="agenda-top">
               <div class="agenda-title">${escapeHtml(e.title)}</div>
               <div class="agenda-hours">${escapeHtml(this._hours(e, day))}</div>
@@ -211,7 +227,12 @@ class AgendaCard extends HTMLElement {
           </div>`
       )
       .join("");
+    this._listEl.innerHTML = rows || TEXT.empty;
+  }
 
+  // Built once, so a refresh replaces only the list and leaves an open
+  // details dialog alone.
+  _build() {
     this.innerHTML = `
       <ha-card class="agenda">
         <style>
@@ -228,21 +249,73 @@ class AgendaCard extends HTMLElement {
           .agenda .agenda-timetable { display: grid; grid-template-columns: auto 1fr;
                                       column-gap: 8px; justify-content: start; line-height: 1.5; }
           .agenda .agenda-tt-time { font-variant-numeric: tabular-nums; }
-        </style>
-        <div class="agenda-list">${rows || TEXT.empty}</div>
-      </ha-card>`;
 
-    this.querySelector(".agenda-list").addEventListener("click", (ev) => {
+          /* showModal() puts the dialog in the top layer, above the whole
+             dashboard, whatever the card sits in. */
+          .agenda-dialog { box-sizing: border-box; width: min(480px, calc(100vw - 32px));
+            max-height: calc(100vh - 32px); padding: 24px; border: none;
+            border-radius: var(--ha-dialog-border-radius, 24px);
+            background: var(--ha-dialog-surface-background, var(--card-background-color, #fff));
+            color: var(--primary-text-color); font-family: var(--ha-font-family-body, Roboto, sans-serif);
+            font-size: 14px; line-height: 1.6; }
+          .agenda-dialog::backdrop { background: rgba(0, 0, 0, .5); }
+          .agenda-dialog .agenda-d-head { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 12px; }
+          .agenda-dialog h2 { flex: 1; margin: 0; font-size: 22px; font-weight: 400; line-height: 1.3;
+                              overflow-wrap: anywhere; user-select: text; outline: none; }
+          .agenda-dialog .agenda-d-close { flex: none; display: flex; padding: 4px; margin: -4px -4px 0 0;
+            border: none; border-radius: 50%; background: none; color: inherit; cursor: pointer; }
+          .agenda-dialog .agenda-d-close:hover { background: rgba(127, 127, 127, .15); }
+          .agenda-dialog .agenda-d-row { display: flex; gap: 12px; align-items: flex-start; padding: 4px 0; }
+          .agenda-dialog .agenda-d-row ha-icon { flex: none; --mdc-icon-size: 20px;
+                                                 color: var(--secondary-text-color); }
+          .agenda-dialog .agenda-d-text { flex: 1; min-width: 0; overflow-wrap: anywhere; user-select: text; }
+          .agenda-dialog .agenda-d-description { white-space: pre-line; }
+          .agenda-dialog .agenda-timetable { display: grid; grid-template-columns: auto 1fr;
+                                             column-gap: 12px; justify-content: start; }
+          .agenda-dialog .agenda-tt-time { font-variant-numeric: tabular-nums; }
+        </style>
+        <div class="agenda-list"></div>
+      </ha-card>
+      <dialog class="agenda-dialog"></dialog>`;
+
+    this._listEl = this.querySelector(".agenda-list");
+    this._dialogEl = this.querySelector(".agenda-dialog");
+
+    this._listEl.addEventListener("click", (ev) => {
+      // Selecting text is not a tap.
+      if (String(window.getSelection?.() || "")) return;
       const row = ev.target.closest(".agenda-event");
-      if (!row) return;
-      this.dispatchEvent(
-        new CustomEvent("hass-more-info", {
-          detail: { entityId: row.getAttribute("data-entity") },
-          bubbles: true,
-          composed: true,
-        })
-      );
+      const e = row && this._shown?.[Number(row.getAttribute("data-index"))];
+      if (e) this._openDetails(e);
     });
+    this._dialogEl.addEventListener("click", (ev) => {
+      // A click on the backdrop lands on the dialog itself.
+      if (ev.target === this._dialogEl || ev.target.closest(".agenda-d-close")) this._dialogEl.close();
+    });
+    this._built = true;
+  }
+
+  _openDetails(e) {
+    const calendar = this._hass?.states?.[e.entityId]?.attributes?.friendly_name || e.entityId;
+    const row = (icon, html) =>
+      `<div class="agenda-d-row"><ha-icon icon="${icon}"></ha-icon><div class="agenda-d-text">${html}</div></div>`;
+    const timetable = e.description && parseTimetable(e.description);
+    const text = timetable
+      ? `<div class="agenda-timetable">${timetableRows(timetable)}</div>`
+      : `<div class="agenda-d-description">${escapeHtml(e.description)}</div>`;
+
+    // The title takes the focus, so the close button shows no focus ring
+    // before anyone has used the keyboard.
+    this._dialogEl.innerHTML = `
+      <div class="agenda-d-head">
+        <h2 tabindex="-1" autofocus>${escapeHtml(e.title)}</h2>
+        <button class="agenda-d-close" aria-label="${TEXT.close}"><ha-icon icon="mdi:close"></ha-icon></button>
+      </div>
+      ${row("mdi:clock-outline", escapeHtml(this._when(e)))}
+      ${row("mdi:calendar", escapeHtml(calendar))}
+      ${e.location ? row("mdi:map-marker", escapeHtml(e.location)) : ""}
+      ${e.description ? row("mdi:text", text) : ""}`;
+    this._dialogEl.showModal();
   }
 
   getCardSize() {
@@ -254,10 +327,13 @@ function description(text) {
   if (!text) return "";
   const timetable = parseTimetable(text);
   if (!timetable) return `<div class="agenda-description">${escapeHtml(text)}</div>`;
-  const rows = timetable
+  return `<div class="agenda-description agenda-timetable">${timetableRows(timetable)}</div>`;
+}
+
+function timetableRows(timetable) {
+  return timetable
     .map((r) => `<span class="agenda-tt-time">${escapeHtml(r.time)}</span><span>${escapeHtml(r.text)}</span>`)
     .join("");
-  return `<div class="agenda-description agenda-timetable">${rows}</div>`;
 }
 
 function escapeHtml(s) {

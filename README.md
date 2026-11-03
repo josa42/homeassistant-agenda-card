@@ -49,8 +49,11 @@ times in a column. It needs at least two entries and has to start with a time;
 anything else stays plain text.
 
 All-day events come first and show no time. On today, the events that have
-ended move to the top. An event that runs past the day says until when, and
-tapping an event opens its calendar. The card fetches the events again every
+ended move to the top. An event that runs past the day says until when.
+
+Tapping an event shows its details: the full date and time, the calendar, the
+location and the whole description. Tap beside it, the close button or Escape
+to close it. The card fetches the events again every
 minute.
 
 <br><br>
