@@ -67,6 +67,46 @@ function parseTimetable(description) {
   return entries.map(([, time, text]) => ({ time, text: text.trim() }));
 }
 
+// The day view in the details dialog.
+const HOUR_PX = 44;
+const DAY_FIRST_HOUR = 7;
+const DAY_LAST_HOUR = 20;
+const CALENDAR_COLORS = [
+  "var(--blue-color, #2196f3)",
+  "var(--green-color, #4caf50)",
+  "var(--orange-color, #ff9800)",
+  "var(--purple-color, #926bc7)",
+  "var(--teal-color, #009688)",
+  "var(--pink-color, #e91e63)",
+  "var(--amber-color, #ffc107)",
+  "var(--indigo-color, #3f51b5)",
+];
+
+// Events that overlap, directly or through others, form a group and share
+// its width: each takes the first column free at its start.
+function layoutColumns(timed) {
+  const sorted = [...timed].sort((a, b) => a.from - b.from || b.to - a.to);
+  const placed = [];
+  let group = [];
+  let groupEnd = -1;
+  const flush = () => {
+    const cols = Math.max(1, ...group.map((p) => p.col + 1));
+    for (const p of group) placed.push({ ...p, cols });
+    group = [];
+  };
+  for (const t of sorted) {
+    if (t.from >= groupEnd && group.length) flush();
+    const ends = [];
+    for (const p of group) ends[p.col] = Math.max(ends[p.col] ?? -1, p.t.to);
+    let col = ends.findIndex((end) => end <= t.from);
+    if (col === -1) col = ends.length;
+    group.push({ t, col });
+    groupEnd = Math.max(groupEnd, t.to);
+  }
+  if (group.length) flush();
+  return placed;
+}
+
 function hideDuplicates(events) {
   const seen = new Set();
   return events.filter((e) => {
@@ -252,7 +292,7 @@ class AgendaCard extends HTMLElement {
 
           /* showModal() puts the dialog in the top layer, above the whole
              dashboard, whatever the card sits in. */
-          .agenda-dialog { box-sizing: border-box; width: min(480px, calc(100vw - 32px));
+          .agenda-dialog { box-sizing: border-box; width: min(860px, calc(100vw - 32px));
             max-height: calc(100vh - 32px); padding: 24px; border: none;
             border-radius: var(--ha-dialog-border-radius, 24px);
             background: var(--ha-dialog-surface-background, var(--card-background-color, #fff));
@@ -273,6 +313,51 @@ class AgendaCard extends HTMLElement {
           .agenda-dialog .agenda-timetable { display: grid; grid-template-columns: auto 1fr;
                                              column-gap: 12px; justify-content: start; }
           .agenda-dialog .agenda-tt-time { font-variant-numeric: tabular-nums; }
+
+          /* The day on the left, the chosen event on the right. On a phone
+             the day sits above, at most half the screen high. */
+          .agenda-dialog .agenda-d-layout { display: grid; grid-template-columns: 320px 1fr; gap: 24px;
+                                            height: min(600px, calc(100vh - 80px)); }
+          .agenda-dialog .agenda-d-info { min-width: 0; overflow: auto; }
+          @media (max-width: 680px) {
+            .agenda-dialog { padding: 16px; }
+            .agenda-dialog .agenda-d-layout { grid-template-columns: 1fr; grid-template-rows: auto 1fr;
+                                              height: calc(100vh - 64px); gap: 16px; }
+            .agenda-dialog .agenda-day { max-height: 45vh; }
+          }
+          .agenda-dialog .agenda-day { display: flex; flex-direction: column; min-height: 0;
+            border-right: 1px solid var(--divider-color, rgba(127, 127, 127, .25)); padding-right: 16px; }
+          @media (max-width: 680px) {
+            .agenda-dialog .agenda-day { border-right: none; padding-right: 0; padding-bottom: 12px;
+              border-bottom: 1px solid var(--divider-color, rgba(127, 127, 127, .25)); }
+          }
+          .agenda-dialog .agenda-day-date { font-size: 16px; margin-bottom: 8px; }
+          .agenda-dialog .agenda-day-allday { display: flex; flex-direction: column; gap: 2px; margin: 0 0 8px 48px; }
+          .agenda-dialog .agenda-day-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+          .agenda-dialog .agenda-day-grid { position: relative; margin-top: 8px; }
+          .agenda-dialog .agenda-day-hour { position: absolute; left: 0; right: 0; height: 0;
+            border-top: 1px solid var(--divider-color, rgba(127, 127, 127, .25)); }
+          .agenda-dialog .agenda-day-hour span { position: absolute; left: 0; top: -9px; padding-right: 6px;
+            font-size: 11px; line-height: 18px; color: var(--secondary-text-color);
+            background: var(--ha-dialog-surface-background, var(--card-background-color, #fff));
+            font-variant-numeric: tabular-nums; }
+          .agenda-dialog .agenda-day-now { position: absolute; left: 44px; right: 0; height: 0;
+            border-top: 2px solid var(--error-color, #db4437); z-index: 2; pointer-events: none; }
+          .agenda-dialog .agenda-day-event { position: absolute; box-sizing: border-box; overflow: hidden;
+            display: flex; flex-direction: column; justify-content: flex-start; margin: 0; padding: 1px 6px; border: none; border-left: 3px solid var(--ev); border-radius: 4px;
+            background: color-mix(in srgb, var(--ev) 22%, transparent); color: inherit; font: inherit;
+            font-size: 12px; line-height: 16px; text-align: left; cursor: pointer; }
+          .agenda-dialog .agenda-day-allday .agenda-day-event { position: static; width: 100%; padding: 2px 6px; }
+          .agenda-dialog .agenda-day-event:hover { background: color-mix(in srgb, var(--ev) 35%, transparent); }
+          .agenda-dialog .agenda-day-event.selected { background: color-mix(in srgb, var(--ev) 50%, transparent);
+            box-shadow: inset 0 0 0 1px var(--ev); }
+          .agenda-dialog .agenda-day-event.finished { opacity: .6; }
+          .agenda-dialog .agenda-day-event b { display: block; font-weight: 500; white-space: nowrap;
+            overflow: hidden; text-overflow: ellipsis; }
+          .agenda-dialog .agenda-day-event small { display: block; font-size: 11px; opacity: .8;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+          .agenda-dialog .agenda-d-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+            margin-right: 8px; background: var(--ev); vertical-align: 0; }
         </style>
         <div class="agenda-list"></div>
       </ha-card>
@@ -285,17 +370,44 @@ class AgendaCard extends HTMLElement {
       // Selecting text is not a tap.
       if (String(window.getSelection?.() || "")) return;
       const row = ev.target.closest(".agenda-event");
-      const e = row && this._shown?.[Number(row.getAttribute("data-index"))];
-      if (e) this._openDetails(e);
+      if (row) this._openDetails(Number(row.getAttribute("data-index")));
     });
     this._dialogEl.addEventListener("click", (ev) => {
       // A click on the backdrop lands on the dialog itself.
-      if (ev.target === this._dialogEl || ev.target.closest(".agenda-d-close")) this._dialogEl.close();
+      if (ev.target === this._dialogEl || ev.target.closest(".agenda-d-close")) {
+        this._dialogEl.close();
+        return;
+      }
+      const block = ev.target.closest(".agenda-day-event");
+      if (block) this._select(Number(block.getAttribute("data-index")));
     });
     this._built = true;
   }
 
-  _openDetails(e) {
+  // The day as it was when the dialog opened: a refresh while it is open
+  // changes the list behind it, not the dialog.
+  _openDetails(index) {
+    this._dayEvents = this._shown || [];
+    if (!this._dayEvents[index]) return;
+    this._dialogEl.innerHTML = `
+      <div class="agenda-d-layout">
+        ${this._dayHtml(this._dayEvents, this._eventsDay)}
+        <div class="agenda-d-info"></div>
+      </div>`;
+    this._select(index);
+    this._dialogEl.showModal();
+    // An hour of the day before the chosen event stays in view.
+    const selected = this._dialogEl.querySelector(".agenda-day-grid .agenda-day-event.selected");
+    const scroll = this._dialogEl.querySelector(".agenda-day-scroll");
+    if (selected) scroll.scrollTop = Math.max(0, selected.offsetTop - HOUR_PX);
+  }
+
+  _select(index) {
+    const e = this._dayEvents[index];
+    if (!e) return;
+    for (const b of this._dialogEl.querySelectorAll(".agenda-day-event")) {
+      b.classList.toggle("selected", Number(b.getAttribute("data-index")) === index);
+    }
     const calendar = this._hass?.states?.[e.entityId]?.attributes?.friendly_name || e.entityId;
     const row = (icon, html) =>
       `<div class="agenda-d-row"><ha-icon icon="${icon}"></ha-icon><div class="agenda-d-text">${html}</div></div>`;
@@ -306,16 +418,75 @@ class AgendaCard extends HTMLElement {
 
     // The title takes the focus, so the close button shows no focus ring
     // before anyone has used the keyboard.
-    this._dialogEl.innerHTML = `
+    const info = this._dialogEl.querySelector(".agenda-d-info");
+    info.innerHTML = `
       <div class="agenda-d-head">
         <h2 tabindex="-1" autofocus>${escapeHtml(e.title)}</h2>
         <button class="agenda-d-close" aria-label="${TEXT.close}"><ha-icon icon="mdi:close"></ha-icon></button>
       </div>
       ${row("mdi:clock-outline", escapeHtml(this._when(e)))}
-      ${row("mdi:calendar", escapeHtml(calendar))}
+      ${row("mdi:calendar", `<span class="agenda-d-dot" style="--ev:${this._color(e)}"></span>${escapeHtml(calendar)}`)}
       ${e.location ? row("mdi:map-marker", escapeHtml(e.location)) : ""}
       ${e.description ? row("mdi:text", text) : ""}`;
-    this._dialogEl.showModal();
+    info.scrollTop = 0;
+    info.querySelector("h2").focus();
+  }
+
+  // One color per calendar, in the order of `entities`.
+  _color(e) {
+    const i = Math.max(0, this._config.entities.indexOf(e.entityId));
+    return CALENDAR_COLORS[i % CALENDAR_COLORS.length];
+  }
+
+  // An hour grid from 07:00 to 20:00, or wider when an event needs it. All-day
+  // events sit above it, and events that overlap share the width.
+  _dayHtml(events, day) {
+    const next = addDays(day, 1);
+    const hours = (d) => (d - day) / 3600000;
+    const timed = events
+      .map((e, index) => ({ e, index, from: Math.max(0, hours(e.start)), to: Math.min(24, hours(e.end)) }))
+      .filter((t) => !t.e.allDay && !(t.e.start <= day && t.e.end >= next));
+    const allDay = events
+      .map((e, index) => ({ e, index }))
+      .filter((t) => t.e.allDay || (t.e.start <= day && t.e.end >= next));
+
+    const first = Math.min(DAY_FIRST_HOUR, ...timed.map((t) => Math.floor(t.from)));
+    const last = Math.max(DAY_LAST_HOUR, ...timed.map((t) => Math.ceil(t.to)));
+    const y = (h) => (h - first) * HOUR_PX;
+    const now = new Date();
+    const block = (t, style) => `
+      <button class="agenda-day-event${t.e.end < now ? " finished" : ""}" data-index="${t.index}"
+              style="--ev:${this._color(t.e)};${style}">
+        <b>${escapeHtml(t.e.title)}</b>
+        ${t.e.allDay || (t.to - t.from) * HOUR_PX < 34 ? "" : `<small>${escapeHtml(this._hours(t.e, day))}</small>`}
+      </button>`;
+
+    const lines = [];
+    for (let h = first; h <= last; h++) {
+      const label = h < 24 ? this._time(new Date(day.getTime() + h * 3600000)) : "";
+      lines.push(`<div class="agenda-day-hour" style="top:${y(h)}px"><span>${label}</span></div>`);
+    }
+    const blocks = layoutColumns(timed).map(({ t, col, cols }) => {
+      const top = y(t.from);
+      const height = Math.max(18, (t.to - t.from) * HOUR_PX - 2);
+      const left = `calc(48px + (100% - 48px) * ${col / cols})`;
+      const width = `calc((100% - 48px) / ${cols} - 2px)`;
+      return block(t, `top:${top}px;height:${height}px;left:${left};width:${width}`);
+    });
+    const nowLine =
+      now >= day && now < next ? `<div class="agenda-day-now" style="top:${y(hours(now))}px"></div>` : "";
+
+    const date = day.toLocaleDateString(this._locale(), { weekday: "long", day: "numeric", month: "long" });
+    return `
+      <div class="agenda-day">
+        <div class="agenda-day-date">${escapeHtml(date)}</div>
+        ${allDay.length ? `<div class="agenda-day-allday">${allDay.map((t) => block(t, "")).join("")}</div>` : ""}
+        <div class="agenda-day-scroll">
+          <div class="agenda-day-grid" style="height:${y(last) + 10}px">
+            ${lines.join("")}${blocks.join("")}${nowLine}
+          </div>
+        </div>
+      </div>`;
   }
 
   getCardSize() {

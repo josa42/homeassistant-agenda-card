@@ -51,9 +51,12 @@ anything else stays plain text.
 All-day events come first and show no time. On today, the events that have
 ended move to the top. An event that runs past the day says until when.
 
-Tapping an event shows its details: the full date and time, the calendar, the
-location and the whole description. Tap beside it, the close button or Escape
-to close it. The card fetches the events again every
+Tapping an event opens the day: an hour grid on the left with every event of
+the day as a block, one color per calendar, and the tapped event's details on
+the right, with the full date and time, the calendar, the location and the
+whole description. Tapping another block shows its details instead. On a
+phone the day sits above the details. Tap beside it, the close button or
+Escape to close it. The card fetches the events again every
 minute.
 
 <br><br>
