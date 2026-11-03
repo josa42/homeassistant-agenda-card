@@ -43,6 +43,11 @@ Two cards make a today and tomorrow view:
   days_ahead: 1
 ```
 
+A description that is a timetable, like
+`07:50 Deutsch 09:50 Mathe 10:40 Kunst`, is shown one entry per line, the
+times in a column. It needs at least two entries and has to start with a time;
+anything else stays plain text.
+
 All-day events come first and show no time. On today, the events that have
 ended move to the top. An event that runs past the day says until when, and
 tapping an event opens its calendar. The card fetches the events again every

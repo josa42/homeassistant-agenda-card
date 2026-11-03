@@ -51,6 +51,19 @@ function parseEvent(raw, entityId) {
   };
 }
 
+// A description like "07:50 Deutsch 09:50 Mathe 10:40 Kunst" is a timetable:
+// at least two entries, each a time and what follows it up to the next time.
+// Anything else returns null and is shown as plain text.
+const TIMETABLE_ENTRY = /^(\d{1,2}:\d{2})\s+(\S.*)$/s;
+
+function parseTimetable(description) {
+  const parts = description.trim().split(/\s+(?=\d{1,2}:\d{2}\s)/);
+  if (parts.length < 2) return null;
+  const entries = parts.map((p) => p.match(TIMETABLE_ENTRY));
+  if (entries.some((m) => !m)) return null;
+  return entries.map(([, time, text]) => ({ time, text: text.trim() }));
+}
+
 function hideDuplicates(events) {
   const seen = new Set();
   return events.filter((e) => {
@@ -194,7 +207,7 @@ class AgendaCard extends HTMLElement {
               <div class="agenda-title">${escapeHtml(e.title)}</div>
               <div class="agenda-hours">${escapeHtml(this._hours(e, day))}</div>
             </div>
-            ${e.description ? `<div class="agenda-description">${escapeHtml(e.description)}</div>` : ""}
+            ${description(e.description)}
           </div>`
       )
       .join("");
@@ -212,6 +225,9 @@ class AgendaCard extends HTMLElement {
           .agenda .agenda-hours { text-align: right; overflow-wrap: anywhere; }
           .agenda .agenda-description { padding: 0 5px; font-size: 80%; overflow-wrap: anywhere;
                                         color: var(--primary-text-color); }
+          .agenda .agenda-timetable { display: grid; grid-template-columns: auto 1fr;
+                                      column-gap: 8px; justify-content: start; line-height: 1.5; }
+          .agenda .agenda-tt-time { font-variant-numeric: tabular-nums; }
         </style>
         <div class="agenda-list">${rows || TEXT.empty}</div>
       </ha-card>`;
@@ -232,6 +248,16 @@ class AgendaCard extends HTMLElement {
   getCardSize() {
     return (this._events?.length || 1) + 1;
   }
+}
+
+function description(text) {
+  if (!text) return "";
+  const timetable = parseTimetable(text);
+  if (!timetable) return `<div class="agenda-description">${escapeHtml(text)}</div>`;
+  const rows = timetable
+    .map((r) => `<span class="agenda-tt-time">${escapeHtml(r.time)}</span><span>${escapeHtml(r.text)}</span>`)
+    .join("");
+  return `<div class="agenda-description agenda-timetable">${rows}</div>`;
 }
 
 function escapeHtml(s) {
