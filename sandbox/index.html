@@ -5,10 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agenda Sandbox</title>
 <style>
-  :root { --primary-text-color: #212121; --card-background-color: #fff; }
+  :root { --primary-text-color: #212121; --secondary-text-color: #727272; --primary-color: #03a9f4;
+          --card-background-color: #fff; }
   body { font-family: Roboto, -apple-system, Helvetica, sans-serif; font-size: 14px; line-height: 1.6;
          background: #fafafa; margin: 0; padding: 16px; color: var(--primary-text-color); }
-  body.dark { --primary-text-color: #e1e1e1; --card-background-color: #1c1c1c; background: #111111; }
+  body.dark { --primary-text-color: #e1e1e1; --secondary-text-color: #9b9b9b; --card-background-color: #1c1c1c;
+              background: #111111; }
   ha-card { display: block; background: var(--card-background-color); border-radius: 12px;
             border: 1px solid rgba(127, 127, 127, .25); }
   .controls { max-width: 760px; margin: 0 auto 16px; display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; }
@@ -66,7 +68,7 @@
       { summary: "Zahnarzt", start: at(1, 16, 45), end: at(1, 17, 45) },
     ],
     "calendar.schule": [
-      { summary: "Schule", description: "07:50 Deutsch 09:50 Mathe 10:40 Kunst 11:35 Sport",
+      { summary: "Schule", description: "07:50 Deutsch 09:50 - 10:30 Mathe 10:40 Kunst 11:35 - 12:20 Sport",
         start: at(0, 7, 50), end: at(0, 12, 20) },
       { summary: "Schule", description: "07:50 Englisch 09:50 Mathe 10:40 Musik",
         start: at(1, 7, 50), end: at(1, 11, 25) },

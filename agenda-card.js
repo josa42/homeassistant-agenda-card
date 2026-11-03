@@ -54,17 +54,23 @@ function parseEvent(raw, entityId) {
   };
 }
 
-// A description like "07:50 Deutsch 09:50 Mathe 10:40 Kunst" is a timetable:
-// at least two entries, each a time and what follows it up to the next time.
-// Anything else returns null and is shown as plain text.
-const TIMETABLE_ENTRY = /^(\d{1,2}:\d{2})\s+(\S.*)$/s;
+// A description like "07:50 Deutsch 09:50 - 10:30 Mathe" is a timetable: at
+// least two entries, each a time or a range of two, and what follows up to
+// the next entry. The whole description has to be entries; anything else
+// returns null and is shown as plain text.
+const TIMES = String.raw`(\d{1,2}:\d{2})(?:\s*[-–—]\s*(\d{1,2}:\d{2}))?`;
+const TIMETABLE_ENTRY = new RegExp(String.raw`\s*${TIMES}\s+(\S.*?)(?=\s+${TIMES}\s|\s*$)`, "ys");
 
 function parseTimetable(description) {
-  const parts = description.trim().split(/\s+(?=\d{1,2}:\d{2}\s)/);
-  if (parts.length < 2) return null;
-  const entries = parts.map((p) => p.match(TIMETABLE_ENTRY));
-  if (entries.some((m) => !m)) return null;
-  return entries.map(([, time, text]) => ({ time, text: text.trim() }));
+  const text = description.trim();
+  const entries = [];
+  TIMETABLE_ENTRY.lastIndex = 0;
+  while (TIMETABLE_ENTRY.lastIndex < text.length) {
+    const m = TIMETABLE_ENTRY.exec(text);
+    if (!m) return null;
+    entries.push({ from: m[1], to: m[2] || null, text: m[3].trim() });
+  }
+  return entries.length >= 2 ? entries : null;
 }
 
 // The day view in the details dialog.
@@ -313,24 +319,12 @@ class AgendaCard extends HTMLElement {
                                                  color: var(--secondary-text-color); }
           .agenda-dialog .agenda-d-text { flex: 1; min-width: 0; overflow-wrap: anywhere; user-select: text; }
           .agenda-dialog .agenda-d-description { white-space: pre-line; }
-          /* A dot per entry on a line that runs from the first to the last. */
-          .agenda-dialog .agenda-sch { list-style: none; margin: 0; padding: 0; }
-          .agenda-dialog .agenda-sch-item { position: relative; padding: 0 0 12px 22px; }
-          .agenda-dialog .agenda-sch-item:last-child { padding-bottom: 0; }
-          .agenda-dialog .agenda-sch-item:not(:last-child)::before { content: ""; position: absolute;
-            left: 4px; top: 14px; bottom: -6px; width: 2px; border-radius: 1px;
-            background: var(--divider-color, rgba(127, 127, 127, .3)); }
-          .agenda-dialog .agenda-sch-dot { position: absolute; left: 0; top: 6px; box-sizing: border-box;
-            width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--primary-color); }
-          .agenda-dialog .agenda-sch-text { line-height: 1.4; }
-          .agenda-dialog .agenda-sch-time { font-size: 12px; line-height: 1.4; color: var(--secondary-text-color);
-            font-variant-numeric: tabular-nums; }
-          .agenda-dialog .agenda-sch-item.past { opacity: .5; }
-          .agenda-dialog .agenda-sch-item.past .agenda-sch-dot { border-color: var(--secondary-text-color);
-            background: var(--secondary-text-color); }
-          .agenda-dialog .agenda-sch-item.current .agenda-sch-dot { background: var(--primary-color);
-            box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary-color) 25%, transparent); }
-          .agenda-dialog .agenda-sch-item.current .agenda-sch-text { color: var(--primary-color); font-weight: 500; }
+          .agenda-dialog .agenda-timetable { display: grid; grid-template-columns: auto 1fr;
+                                             column-gap: 12px; justify-content: start; }
+          .agenda-dialog .agenda-tt-row { display: contents; }
+          .agenda-dialog .agenda-tt-time { color: var(--secondary-text-color); font-variant-numeric: tabular-nums; }
+          .agenda-dialog .agenda-tt-row.past > span { opacity: .5; }
+          .agenda-dialog .agenda-tt-row.current > span { color: var(--primary-color); font-weight: 500; }
 
           /* The day on the left, the chosen event on the right. On a phone
              the day sits above, at most half the screen high. */
@@ -431,7 +425,7 @@ class AgendaCard extends HTMLElement {
       `<div class="agenda-d-row"><ha-icon icon="${icon}"></ha-icon><div class="agenda-d-text">${html}</div></div>`;
     const entries = schedule(e, new Date());
     const text = entries
-      ? this._scheduleDetails(entries)
+      ? `<div class="agenda-timetable">${timetableRows(entries)}</div>`
       : `<div class="agenda-d-description">${escapeHtml(e.description)}</div>`;
 
     // The title takes the focus, so the close button shows no focus ring
@@ -517,37 +511,13 @@ class AgendaCard extends HTMLElement {
       </div>`;
   }
 
-  // In the list a timetable is one entry per line: the start, dimmed, and
+  // In the list a timetable is one entry per line: the times, dimmed, and
   // what is on. The entry running now stands out.
   _description(e, now) {
     if (!e.description) return "";
     const entries = schedule(e, now);
     if (!entries) return `<div class="agenda-description">${escapeHtml(e.description)}</div>`;
-    const rows = entries
-      .map(
-        (r) => `<div class="agenda-tt-row ${r.state}">
-          <span class="agenda-tt-time">${escapeHtml(this._time(r.start))}</span>
-          <span class="agenda-tt-text">${escapeHtml(r.text)}</span></div>`
-      )
-      .join("");
-    return `<div class="agenda-description agenda-timetable">${rows}</div>`;
-  }
-
-  // In the details a timetable is a timeline: a dot per entry on a line, with
-  // the time it runs and what is on.
-  _scheduleDetails(entries) {
-    const items = entries
-      .map((r) => {
-        const time = r.end ? `${this._time(r.start)} – ${this._time(r.end)}` : this._time(r.start);
-        const minutes = r.end ? Math.round((r.end - r.start) / 60000) : null;
-        return `<li class="agenda-sch-item ${r.state}">
-          <span class="agenda-sch-dot"></span>
-          <div class="agenda-sch-text">${escapeHtml(r.text)}</div>
-          <div class="agenda-sch-time">${escapeHtml(time)}${minutes ? ` · ${duration(minutes)}` : ""}</div>
-        </li>`;
-      })
-      .join("");
-    return `<ol class="agenda-sch">${items}</ol>`;
+    return `<div class="agenda-description agenda-timetable">${timetableRows(entries)}</div>`;
   }
 
   getCardSize() {
@@ -555,34 +525,36 @@ class AgendaCard extends HTMLElement {
   }
 }
 
-// The timetable in an event's description, each entry on the event's day and
-// running until the next one starts, the last until the event ends. An entry
-// is past, current or still to come. Null when the description is no
-// timetable.
+// The timetable in an event's description, each entry past, current or still
+// to come. Only the times the description has are shown. To tell which entry
+// is running, one without an end counts as running until the next one starts,
+// the last until the event ends. Null when the description is no timetable.
 function schedule(e, now) {
   const timetable = e.description && parseTimetable(e.description);
   if (!timetable) return null;
-  const starts = timetable.map((r) => {
-    const [h, m] = r.time.split(":").map(Number);
+  const at = (time) => {
+    const [h, m] = time.split(":").map(Number);
     const d = new Date(e.start);
     d.setHours(h, m, 0, 0);
     return d;
-  });
+  };
+  const starts = timetable.map((r) => at(r.from));
   return timetable.map((r, i) => {
     const start = starts[i];
-    const next = i + 1 < starts.length ? starts[i + 1] : e.end;
-    const end = next > start ? next : null;
-    const state = end && end <= now ? "past" : start <= now && (!end || now < end) ? "current" : "";
-    return { start, end, text: r.text, state };
+    const end = r.to ? at(r.to) : i + 1 < starts.length ? starts[i + 1] : e.end;
+    const state = end > start && end <= now ? "past" : start <= now && now < end ? "current" : "";
+    return { from: r.from, to: r.to, text: r.text, state };
   });
 }
 
-// 45 min, 2 Std., 1 Std. 30 min
-function duration(minutes) {
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  if (!h) return `${m} min`;
-  return m ? `${h} Std. ${m} min` : `${h} Std.`;
+function timetableRows(entries) {
+  return entries
+    .map(
+      (r) => `<div class="agenda-tt-row ${r.state}">
+        <span class="agenda-tt-time">${escapeHtml(r.to ? `${r.from} – ${r.to}` : r.from)}</span>
+        <span class="agenda-tt-text">${escapeHtml(r.text)}</span></div>`
+    )
+    .join("");
 }
 
 function escapeHtml(s) {

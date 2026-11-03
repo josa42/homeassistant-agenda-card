@@ -43,13 +43,18 @@ Two cards make a today and tomorrow view:
   days_ahead: 1
 ```
 
-A description that is a timetable, like
-`07:50 Deutsch 09:50 Mathe 10:40 Kunst`, is shown one entry per line, the
-times in a column. Each entry runs until the next one starts, the last until
-the event ends, so the entry running now stands out and the ones before it are
-dimmed. In the details the timetable is a timeline, with when each entry runs
-and for how long. It needs at least two entries and has to start with a time;
-anything else stays plain text.
+A description that is a timetable is shown one entry per line, the times in a
+column and what is on next to them. An entry has a time or a range of two:
+
+```
+07:50 Deutsch 09:50 - 10:30 Mathe 10:40 Kunst
+```
+
+The card shows only the times the description has. The entry running now
+stands out and the ones before it are dimmed; to tell, an entry without an end
+counts as running until the next one starts, the last until the event ends. A
+timetable needs at least two entries and has to start with a time; anything
+else stays plain text.
 
 All-day events come first and show no time. On today, the events that have
 ended move to the top. An event that runs past the day says until when.
