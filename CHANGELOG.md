@@ -12,3 +12,5 @@
   the right. Tapping another event in the grid shows its details.
 - **Timetables on separate lines.** A description like
   `07:50 Deutsch 09:50 Mathe` shows one entry per line, the times in a column.
+  The entry running now stands out and the ones before it are dimmed. In the
+  details it is a timeline, with when each entry runs and for how long.

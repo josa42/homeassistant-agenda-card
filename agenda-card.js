@@ -263,7 +263,7 @@ class AgendaCard extends HTMLElement {
               <div class="agenda-title">${escapeHtml(e.title)}</div>
               <div class="agenda-hours">${escapeHtml(this._hours(e, day))}</div>
             </div>
-            ${description(e.description)}
+            ${this._description(e, now)}
           </div>`
       )
       .join("");
@@ -288,7 +288,10 @@ class AgendaCard extends HTMLElement {
                                         color: var(--primary-text-color); }
           .agenda .agenda-timetable { display: grid; grid-template-columns: auto 1fr;
                                       column-gap: 8px; justify-content: start; line-height: 1.5; }
-          .agenda .agenda-tt-time { font-variant-numeric: tabular-nums; }
+          .agenda .agenda-tt-row { display: contents; }
+          .agenda .agenda-tt-time { color: var(--secondary-text-color); font-variant-numeric: tabular-nums; }
+          .agenda .agenda-tt-row.past > span { opacity: .5; }
+          .agenda .agenda-tt-row.current > span { color: var(--primary-color); font-weight: 500; }
 
           /* showModal() puts the dialog in the top layer, above the whole
              dashboard, whatever the card sits in. */
@@ -310,9 +313,24 @@ class AgendaCard extends HTMLElement {
                                                  color: var(--secondary-text-color); }
           .agenda-dialog .agenda-d-text { flex: 1; min-width: 0; overflow-wrap: anywhere; user-select: text; }
           .agenda-dialog .agenda-d-description { white-space: pre-line; }
-          .agenda-dialog .agenda-timetable { display: grid; grid-template-columns: auto 1fr;
-                                             column-gap: 12px; justify-content: start; }
-          .agenda-dialog .agenda-tt-time { font-variant-numeric: tabular-nums; }
+          /* A dot per entry on a line that runs from the first to the last. */
+          .agenda-dialog .agenda-sch { list-style: none; margin: 0; padding: 0; }
+          .agenda-dialog .agenda-sch-item { position: relative; padding: 0 0 12px 22px; }
+          .agenda-dialog .agenda-sch-item:last-child { padding-bottom: 0; }
+          .agenda-dialog .agenda-sch-item:not(:last-child)::before { content: ""; position: absolute;
+            left: 4px; top: 14px; bottom: -6px; width: 2px; border-radius: 1px;
+            background: var(--divider-color, rgba(127, 127, 127, .3)); }
+          .agenda-dialog .agenda-sch-dot { position: absolute; left: 0; top: 6px; box-sizing: border-box;
+            width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--primary-color); }
+          .agenda-dialog .agenda-sch-text { line-height: 1.4; }
+          .agenda-dialog .agenda-sch-time { font-size: 12px; line-height: 1.4; color: var(--secondary-text-color);
+            font-variant-numeric: tabular-nums; }
+          .agenda-dialog .agenda-sch-item.past { opacity: .5; }
+          .agenda-dialog .agenda-sch-item.past .agenda-sch-dot { border-color: var(--secondary-text-color);
+            background: var(--secondary-text-color); }
+          .agenda-dialog .agenda-sch-item.current .agenda-sch-dot { background: var(--primary-color);
+            box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary-color) 25%, transparent); }
+          .agenda-dialog .agenda-sch-item.current .agenda-sch-text { color: var(--primary-color); font-weight: 500; }
 
           /* The day on the left, the chosen event on the right. On a phone
              the day sits above, at most half the screen high. */
@@ -411,9 +429,9 @@ class AgendaCard extends HTMLElement {
     const calendar = this._calendarName(e.entityId);
     const row = (icon, html) =>
       `<div class="agenda-d-row"><ha-icon icon="${icon}"></ha-icon><div class="agenda-d-text">${html}</div></div>`;
-    const timetable = e.description && parseTimetable(e.description);
-    const text = timetable
-      ? `<div class="agenda-timetable">${timetableRows(timetable)}</div>`
+    const entries = schedule(e, new Date());
+    const text = entries
+      ? this._scheduleDetails(entries)
       : `<div class="agenda-d-description">${escapeHtml(e.description)}</div>`;
 
     // The title takes the focus, so the close button shows no focus ring
@@ -427,7 +445,7 @@ class AgendaCard extends HTMLElement {
       ${row("mdi:clock-outline", escapeHtml(this._when(e)))}
       ${row("mdi:calendar", `<span class="agenda-d-dot" style="--ev:${this._color(e)}"></span>${escapeHtml(calendar)}`)}
       ${e.location ? row("mdi:map-marker", escapeHtml(e.location)) : ""}
-      ${e.description ? row("mdi:text", text) : ""}`;
+      ${e.description ? row(entries ? "mdi:timetable" : "mdi:text", text) : ""}`;
     info.scrollTop = 0;
     info.querySelector("h2").focus();
   }
@@ -499,22 +517,72 @@ class AgendaCard extends HTMLElement {
       </div>`;
   }
 
+  // In the list a timetable is one entry per line: the start, dimmed, and
+  // what is on. The entry running now stands out.
+  _description(e, now) {
+    if (!e.description) return "";
+    const entries = schedule(e, now);
+    if (!entries) return `<div class="agenda-description">${escapeHtml(e.description)}</div>`;
+    const rows = entries
+      .map(
+        (r) => `<div class="agenda-tt-row ${r.state}">
+          <span class="agenda-tt-time">${escapeHtml(this._time(r.start))}</span>
+          <span class="agenda-tt-text">${escapeHtml(r.text)}</span></div>`
+      )
+      .join("");
+    return `<div class="agenda-description agenda-timetable">${rows}</div>`;
+  }
+
+  // In the details a timetable is a timeline: a dot per entry on a line, with
+  // the time it runs and what is on.
+  _scheduleDetails(entries) {
+    const items = entries
+      .map((r) => {
+        const time = r.end ? `${this._time(r.start)} – ${this._time(r.end)}` : this._time(r.start);
+        const minutes = r.end ? Math.round((r.end - r.start) / 60000) : null;
+        return `<li class="agenda-sch-item ${r.state}">
+          <span class="agenda-sch-dot"></span>
+          <div class="agenda-sch-text">${escapeHtml(r.text)}</div>
+          <div class="agenda-sch-time">${escapeHtml(time)}${minutes ? ` · ${duration(minutes)}` : ""}</div>
+        </li>`;
+      })
+      .join("");
+    return `<ol class="agenda-sch">${items}</ol>`;
+  }
+
   getCardSize() {
     return (this._events?.length || 1) + 1;
   }
 }
 
-function description(text) {
-  if (!text) return "";
-  const timetable = parseTimetable(text);
-  if (!timetable) return `<div class="agenda-description">${escapeHtml(text)}</div>`;
-  return `<div class="agenda-description agenda-timetable">${timetableRows(timetable)}</div>`;
+// The timetable in an event's description, each entry on the event's day and
+// running until the next one starts, the last until the event ends. An entry
+// is past, current or still to come. Null when the description is no
+// timetable.
+function schedule(e, now) {
+  const timetable = e.description && parseTimetable(e.description);
+  if (!timetable) return null;
+  const starts = timetable.map((r) => {
+    const [h, m] = r.time.split(":").map(Number);
+    const d = new Date(e.start);
+    d.setHours(h, m, 0, 0);
+    return d;
+  });
+  return timetable.map((r, i) => {
+    const start = starts[i];
+    const next = i + 1 < starts.length ? starts[i + 1] : e.end;
+    const end = next > start ? next : null;
+    const state = end && end <= now ? "past" : start <= now && (!end || now < end) ? "current" : "";
+    return { start, end, text: r.text, state };
+  });
 }
 
-function timetableRows(timetable) {
-  return timetable
-    .map((r) => `<span class="agenda-tt-time">${escapeHtml(r.time)}</span><span>${escapeHtml(r.text)}</span>`)
-    .join("");
+// 45 min, 2 Std., 1 Std. 30 min
+function duration(minutes) {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (!h) return `${m} min`;
+  return m ? `${h} Std. ${m} min` : `${h} Std.`;
 }
 
 function escapeHtml(s) {

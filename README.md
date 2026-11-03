@@ -45,7 +45,10 @@ Two cards make a today and tomorrow view:
 
 A description that is a timetable, like
 `07:50 Deutsch 09:50 Mathe 10:40 Kunst`, is shown one entry per line, the
-times in a column. It needs at least two entries and has to start with a time;
+times in a column. Each entry runs until the next one starts, the last until
+the event ends, so the entry running now stands out and the ones before it are
+dimmed. In the details the timetable is a timeline, with when each entry runs
+and for how long. It needs at least two entries and has to start with a time;
 anything else stays plain text.
 
 All-day events come first and show no time. On today, the events that have
